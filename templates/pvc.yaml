@@ -1,0 +1,33 @@
+{{- if .Values.persistence.volumes }}
+{{- $labels := include "deploy.labels" . }}
+{{- range .Values.persistence.volumes }}
+{{ if .enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: "{{ .name }}"
+  labels:
+  {{- with $labels -}}
+  {{ . | nindent 4 }}
+  {{ end }}
+spec:
+  accessModes:
+    - {{ .accessMode | quote }}
+  resources:
+    requests:
+      storage: {{ .size | quote }}
+
+{{- if .storageClass }}
+{{- if (eq "-" .storageClass) }}
+  storageClassName: ""
+{{- else }}
+  storageClassName: "{{ .storageClass }}"
+{{- end }}
+{{- end }}
+{{- if .VolumeName }}
+  volumeName: "{{ .name }}"
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

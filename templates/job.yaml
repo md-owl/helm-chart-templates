@@ -1,0 +1,102 @@
+{{- if and (not .Values.deployment) (not .Values.cronjob) }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "deploy.fullname" . }}
+  labels:
+    {{ include "deploy.labels" . | nindent 4 }}
+spec:
+  template:
+    metadata:
+      annotations:
+      {{- if .Values.extraPodAnnotationTemplates }}
+        {{- range $k, $v := .Values.extraPodAnnotationTemplates }}
+        {{ $k | quote }}: {{ tpl $v $ | quote }}
+      {{- end }}
+      {{- end }}
+      labels:
+        {{ include "deploy.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ template "deploy.serviceAccountName" . }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 12 }}
+      {{- end }}
+      {{- if .Values.initContainers  }}
+      initContainers:
+        {{- range .Values.initContainers }}
+        {{- if .enabled }}
+        - name: {{ .name }}
+          {{- if or .tag $.Values.image.tag }}
+          image: "{{ .repository | default $.Values.image.repository  }}:{{ .tag | default $.Values.image.tag }}"
+          {{- else }}
+          image: "{{ .repository | default $.Values.image.repository  }}@{{ .digest | default $.Values.image.digest }}"
+          {{- end }}
+          command: ['sh', '-c', "{{ .command }}"]
+          {{- if .envFrom }}
+          envFrom:
+            {{- toYaml .envFrom | nindent 16  }}
+          {{ end }}
+          env:
+            - name: POD_LABEL
+              value: {{ $.Release.Name }}
+            {{- if .env }}
+            {{ toYaml .env | nindent 12 }}
+            {{- end }}
+            {{- if .extraEnv }}
+            {{ toYaml .extraEnv | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            {{- include "mounts" $  | nindent 16 }}
+        {{- end }}
+        {{- end }}
+      {{- end }}
+      containers:
+      - name: {{ .Release.Name }}
+        {{- with .Values.podSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- if .Values.image.digest }}
+        image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+        {{- else }}
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        {{- end }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        {{- if .Values.envFrom }}
+        envFrom:
+          {{- toYaml .Values.envFrom | nindent 14 }}
+        {{- end }}
+        {{- with .Values.extraEnv }}
+        env:
+          {{- toYaml . | nindent 14 }}
+        {{- end }}
+        {{- if .Values.command }}
+        command:
+          {{- range $commandIndex, $command := .Values.command }}
+          - {{ $command | quote }}
+          {{- end }}
+        {{- end }}
+        {{- if .Values.args }}
+        args:
+          {{- range $argIndex, $arg := .Values.args }}
+          - {{ $arg | quote }}
+          {{- end }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 14 }}
+        {{- with .Values.securityContext.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 14 }}
+        {{- end }}
+        volumeMounts:
+          {{- include "mounts" . | nindent 12 }}
+          {{- if .Values.secretproviderclass.enabled }}
+          {{- include "csiVolumeMount" . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 12 }}
+      {{- end }}
+      restartPolicy: Never
+{{- end }}

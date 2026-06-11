@@ -1,0 +1,30 @@
+
+{{- $fullName := include "deploy.fullname" . -}}
+{{- $labels := include "deploy.labels" . }}
+{{- $svcPort := .Values.service.port -}}
+{{- if .Values.istio.enabled }}
+kind: VirtualService
+apiVersion: networking.istio.io/v1alpha3
+metadata:
+  name: {{ .Values.istio.name }}
+  labels:
+  {{- with $labels -}}
+  {{ . | nindent 4 }}
+  {{- end }}
+  {{- with .annotations }}
+  annotations: {{ toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  gateways:
+    - istio-ingress/cross-network-gateway
+  hosts: 
+    {{- range .Values.istio.spec.hosts | toStrings }}
+    - {{ . }}
+    {{- end }}
+  http:
+    - route:
+        - destination:
+            host: {{ .Values.istio.spec.http.route.destination.host | default $fullName }}
+            port:
+              number: {{ .Values.istio.spec.http.route.destination.port.number | default (int $svcPort) }}
+{{ end }}

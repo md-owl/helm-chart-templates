@@ -1,0 +1,16 @@
+{{- if .Values.serviceAccount.createRbac -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ template "deploy.serviceAccountName" . }}-role-binding
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ template "deploy.serviceAccountName" . }}-role
+subjects:
+- kind: ServiceAccount
+  name: {{ template "deploy.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+{{- end -}}

@@ -1,0 +1,76 @@
+{{- if .Values.canary.enabled }}
+apiVersion: flagger.app/v1beta1
+kind: Canary
+metadata:
+  name: {{ template "deploy.fullname" . }}
+  labels:
+    app: {{ template "deploy.name" . }}
+    chart: {{ template "deploy.chart" . }}
+    release: {{ .Release.Name }}
+    heritage: {{ .Release.Service }}
+spec:
+  revertOnDeletion: {{ .Values.canary.revertOnDeletion }}
+  targetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name:  {{ template "deploy.fullname" . }}
+  autoscalerRef:
+    apiVersion: autoscaling/v2beta2
+    kind: HorizontalPodAutoscaler
+    name:  {{ template "deploy.fullname" . }}
+  service:
+    portDiscovery: {{ .Values.canary.service.portDiscovery }}
+    port: {{ .Values.service.port }}
+    {{- if .Values.canary.istioIngress.enabled }}
+    gateways:
+    -  {{ .Values.canary.istioIngress.gateway }}
+    hosts:
+    - {{ .Values.canary.istioIngress.host }}
+    {{- end }}
+    trafficPolicy:
+      tls:
+        mode: {{ .Values.canary.istioTLS }}
+  analysis:
+    interval: {{ .Values.canary.analysis.interval }}
+    threshold: {{ .Values.canary.analysis.threshold }}
+    maxWeight: {{ .Values.canary.analysis.maxWeight }}
+    stepWeight: {{ .Values.canary.analysis.stepWeight }}
+    metrics:
+    {{- if .Values.canary.disableDefaultMetrics }}
+    - name: request-success-rate
+      threshold: {{ .Values.canary.thresholds.successRate }}
+      interval: 1m
+    - name: request-duration
+      threshold: {{ .Values.canary.thresholds.latency }}
+      interval: 1m
+    {{- end -}}
+    {{- if .Values.canary.customAnalysis.enabled }}
+    {{- range .Values.canary.customAnalysis.templates }}
+    - name: {{ .name }}
+      templateRef:
+        name: {{ .templateRef.name }}
+        namespace: {{ .templateRef.namespace }}
+      thresholdRange:
+        min: {{ .thresholdRange.min }}
+        max: {{ .thresholdRange.max }}
+      interval: {{ .interval }}
+    {{- end }}
+    {{- end }}
+    webhooks:
+      {{- if .Values.canary.helmtest.enabled }}
+      - name: "helm test"
+        type: pre-rollout
+        url: {{ .Values.canary.helmtest.url }}
+        timeout: 3m
+        metadata:
+          type: "helmv3"
+          cmd: "test {{ .Release.Name }} -n {{ .Release.Namespace }}"
+      {{- end }}
+      {{- if .Values.canary.loadtest.enabled }}
+      - name: load-test-get
+        url: {{ .Values.canary.loadtest.url }}
+        timeout: 5s
+        metadata:
+          cmd: "hey -z 1m -q 15 -c 5 http://{{ template "deploy.fullname" . }}.{{ .Release.Namespace }}.svc:{{ .Values.service.port }}"
+      {{- end }}
+{{- end }}

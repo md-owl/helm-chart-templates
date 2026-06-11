@@ -1,0 +1,14 @@
+{{ if .Values.serviceAccount.createPsp }}
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  labels:
+{{ include "deploy.labels" . | indent 4 -}}
+{{ if  .Values.serviceAccount.psp.annotations }}
+  annotations:
+  {{- toYaml .Values.serviceAccount.psp.annotations | nindent 4}}
+{{- end }}
+  name: {{ .Values.serviceAccount.psp.name }}
+spec:
+{{- toYaml .Values.serviceAccount.psp.spec | nindent 2 }}
+{{- end }}

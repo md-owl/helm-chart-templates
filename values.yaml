@@ -1,0 +1,602 @@
+deployment: false # for cronjob, for regular deployment use true
+
+## Контейнер для инициализации ##
+initContainers: {}
+  # - name: init1
+  #   enabled: false
+  #   # if tag is not present, will use values.image.repostitory
+  #   # repository: ""
+  #   # tag: latest
+  #   # command will be added to sh -c "commmand"
+  #   digest: ""
+  #   command: "sleep 1; sleep 2; sleep 3;"
+  #   ## Pass environment variables to container
+  #   env: []
+  #   #  - name: ENV1
+  #   #    value: value1
+  ### - extraEnv for global values
+  #   extraEnv: []
+  #     - name: LOG_LEVEL
+  #       value: "warning"
+
+## deployment configurations
+nameOverride: ""
+
+# cronjob:
+  # schedule: "0 2 * * *"
+
+replicaCount: 1
+
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 2
+    maxUnavailable: 0
+
+image:
+  repository: "$REGISTRY/$REGISTRY_DOCKER_REPO/$CI_PROJECT_NAME"
+  tag: "$DOCKER_TAG"
+  digest: ""
+  pullPolicy: "IfNotPresent"
+
+lifecycle: 
+  # postStart:
+  #   exec:
+  #     command: ["/srv/config.sh"]
+        
+  # preStop:
+  #   exec:
+  #     command: ["/bin/sh","-c","echo Hello from the postStart handler > /usr/share/message"]
+
+#override docker ENTRYPOINT AND CMD
+command: ["/srv/config.sh"]
+# args: []
+
+# command: ["/bin/sleep"]
+# args: ["1000"]
+
+imageCredentials:
+  createSecret: true
+  secretName: regcred
+  registry: "$REGISTRY"
+  username: "$REGISTRY_USER"
+  password: "$REGISTRY_PASS"
+
+imagePullSecrets:
+  - name: regcred
+
+## CSIvolume используется для обращения к Custom Resource VaultCSI ##
+csiVault:
+### CsiVolume
+  csivolume:
+    - name: secrets-store-$CI_PROJECT_NAME-$ENVIRONMENT-csi
+      enabled: false
+      volume:
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: "$CI_PROJECT_NAME-$ENVIRONMENT"
+
+### CsiVolumeMounts if csiVolume disable VolumeMounts disabled too
+  # VolumeMounts:
+  #   - name: secrets-store-$CI_PROJECT_NAME-$ENVIRONMENT-csi
+  #     mountPath: "/mnt/secrets/$CI_PROJECT_NAME-$ENVIRONMENT-secret"
+  #     readOnly: true
+
+persistence:
+  #volumes:
+  #   - name: volume1
+  #     enabled: false
+  #     existingClaim: data
+  #     storageClass: nfs
+  #     accessMode: ReadWriteMany
+  #     size: 10Gi
+  #     subPath: ""
+  #     mountPath: "/data"
+  
+  VolumeMounts: []
+    # - name: secrets-store-$CI_PROJECT_NAME-$ENVIRONMENT-csi
+    #   mountPath: "/mnt/secrets/$CI_PROJECT_NAME-$ENVIRONMENT-secret"
+    #   readOnly: true
+
+  extraVolumes:
+    # - name: postgresconf
+    #   configMap:
+    #     name: configurator-env
+    #     items:
+    #     - key: configurator_postgres.conf
+    #       path: config.conf
+    # - name: platform-settingsjson
+    #   configMap:
+    #     name: configurator-env
+    #     items:
+    #     - key: configurator_platform_settings.json
+    #       path: platform_settings.json
+    - name: postgresconf
+      secret:
+        secretName: configurator-secret
+        items:
+        - key: postgres
+          path: config.conf
+    - name: platform-settingsjson
+      secret:
+        secretName: configurator-secret
+        items:
+        - key: platform_settings
+          path: platform_settings.json        
+    #- name: secrets-store-inline
+    #  enabled: false
+    #  mountPath: "/mnt/secrets-store"
+    #  subPath: "/some/subdir"
+    #  volume:
+    #    csi:
+    #      driver: secrets-store.csi.k8s.io
+    #      readOnly: true
+    #      volumeAttributes:
+    #        secretProviderClass: "vault-database"
+    #- name: stftp01-dev-masterfiles
+    #  enabled: false
+    #  mountPath: "/data/dev-masterfiles"
+    #  subPath: "/some/subdir"
+    #  volume:
+    #    nfs:
+    #      server: 10.72.99.1
+    #      path: /data/nfs-exports/dev/masterfiles
+
+  extraVolumeMounts:
+    - name: "postgresconf"
+      mountPath: "/srv/configs/config.conf"
+      subPath: "config.conf"
+    - name: "platform-settingsjson"
+      mountPath: "/srv/used_dumps/platform_settings.json"
+      subPath: "platform_settings.json"
+    #   enabled: true
+    #   mountPath: "srv/configurator" 
+    # - name: stftp01-dev-masterfiles
+    #   enabled: true
+    #   mountPath: ""
+    #   subPath: ""
+    # - name: satim
+    #   enabled: true
+    #   mountPath: /satim/satim_git/src/projects
+    #   subPath: projects
+    # - name: satim
+    #   enabled: true
+    #   mountPath: /satim/satim_git/src/logs
+    #   subPath: logs
+     
+
+# ConfigMap change should thrigger a restart?
+restartOnConfigChange: true
+
+# Create ConfigMap and mounts it's keys as files
+confFiles: {}
+#  mounts:
+#    - mountPath: /etc/nginx/nginx.conf
+#      #secretName: some-secret
+#      subPath: nginx.conf
+#      #items:
+#      #  - nginx.conf
+#  files:
+#    - name: nginx.conf
+#      # content field is a Go template
+#      content: |
+#        {{ printf "user %s;" .Values.nginx.user }}
+#        ...
+
+## RBAC ##
+## Создает ServiceAccount
+## Создает RoleBinding - по умолчанию 
+## Создает Role - как правило используется для работы с Vault-csi в Prod кластере k8s
+## Создает PSP(pod security policy) как правило используется для работы с Vault-csi в Prod кластере k8s
+## supported values for PSP volume: "*", "awsElasticBlockStore", "azureDisk", "azureFile" 
+## "cephFS", "cinder", "configMap", "csi", "downwardAPI", "emptyDir", "ephemeral", "fc", "flexVolume", ## "flocker", "gcePersistentDisk", "gitRepo", "glusterfs", "hostPath", "iscsi", "nfs", 
+## "persistentVolumeClaim", "photonPersistentDisk", "portworxVolume", "projected", "quobyte", ## "rbd", "scaleIO", "secret", "storageos", "vsphereVolume"]
+serviceAccount:
+  create: true
+  automountServiceAccountToken: false
+  name: ""
+  createRbac: false
+  rules:
+  - apiGroups:
+    - policy
+    resources:
+    - podsecuritypolicies
+    resourceNames:
+    - vault-$CI_PROJECT_NAME-$ENVIRONMENT-psp #PSP name, same name in "psp"
+    verbs:
+    - use
+  createPsp: false
+  psp:
+    name: vault-$CI_PROJECT_NAME-$ENVIRONMENT-psp #PSP name
+    annotations:
+      seccomp.security.alpha.kubernetes.io/allowedProfileNames: docker/default
+      seccomp.security.alpha.kubernetes.io/defaultProfileName: docker/default
+    spec:
+      allowPrivilegeEscalation: true
+      privileged: true
+      allowedHostPaths:
+      - pathPrefix: /var/lib/kubelet/pods
+      - pathPrefix: /etc/kubernetes/secrets-store-csi-providers
+      fsGroup:
+        rule: RunAsAny
+      runAsUser:
+        rule: RunAsAny
+      seLinux:
+        rule: RunAsAny
+      supplementalGroups:
+        rule: RunAsAny
+      volumes:
+        - csi
+        - secret
+        - hostPath
+        - configMap
+        - emptyDir
+        - downwardAPI
+        - projected
+  
+
+podSecurityContext: {}
+  # fsGroup: 1001
+
+securityContext: {}
+  # capabilities:
+  #   drop:
+  #   - ALL
+  # readOnlyRootFilesystem: true
+  # runAsNonRoot: true
+  # runAsUser: 1000
+
+# defining ports. Default name for service.port always 'http'
+service:
+  type: ClusterIP
+  portname: http
+  port: 5070
+  extraLabels: {}
+  appProtocol: http
+  #labels1: label
+
+  #Extra ports. Раскоментируйте если нужны дополнительные порты
+  #Порты можно добавлять последовательно друг за другом если нужно больше одного. 
+  #extraPorts:
+  #  - name: management-http
+  #    containerPort: 8081
+  #    protocol: TCP
+
+# Extra service for making GRPC 
+extraService:
+  enabled: false
+  type: LoadBalancer 
+  portname: http2
+  port: 5070
+  extraLabels: {}
+  appProtocol: http
+  #labels1: label
+
+  #Extra ports. Раскоментируйте если нужны дополнительные порты
+  #Порты можно добавлять последовательно друг за другом если нужно больше одного. 
+  # extraPorts:
+  #  - name: http
+  #    containerPort: 8081
+  #    protocol: TCP
+
+ingresses: 
+  - name: "configurator-dev-external"
+    enabled: true
+    className: "nginx-ingress"
+    annotations: {}
+      # nginx.ingress.kubernetes.io/use-regex: "true"
+      # nginx.ingress.kubernetes.io/rewrite-target: "/$$2"
+    #  kubernetes.io/ingress.class: nginx
+    #  nginx.org/proxy-connect-timeout: "60s"
+    #  nginx.org/proxy-read-timeout: "60s"
+    #  nginx.org/client-max-body-size: "20m"
+    #  kubernetes.io/tls-acme: "true"
+    hosts:
+      - host: configurator.example.com
+        paths:
+          - path: /
+            pathType: ImplementationSpecific
+            serviceName: ""   # override service, default will be  $fullName
+            servicePort: ""   # override port default will be $svcPort
+    tls: []
+    #  - secretName: ca-secret
+    #    hosts:
+    #      - $URL
+
+  - name: "$CI_PROJECT_NAME-$ENVIRONMENT-internal"
+    enabled: false
+    className: "nginx"
+    annotations: {}
+    #  kubernetes.io/ingress.class: nginx2
+    #  kubernetes.io/tls-acme: "true"
+    hosts:
+      - host: "$CI_PROJECT_NAME-$ENVIRONMENT.$URLVARIBLES"
+        paths:
+          - path: /
+            pathType: ImplementationSpecific      
+            serviceName: ""  # override service, default will be  $fullName
+            servicePort: ""  # override port default will be $svcPort
+    tls: []
+    #  - secretName: tls
+    #    hosts:
+    #      - "$CI_PROJECT_NAME-$ENVIRONMENT.$URLVARIBLES"
+
+
+# resources:
+  # limits:
+  #   cpu: 100m
+  #   memory: 128Mi
+  # requests:
+  #   cpu: 100m
+  #   memory: 128Mi
+
+# -- Istio Virtual Service
+## by default host: fullName, portNumber: svcPort
+istio:
+  name: "$CI_PROJECT_NAME-$ENVIRONMENT-external"
+  enabled: false
+  namespace: "$CI_PROJECT_NAME-$ENVIRONMENT"
+  annotations: {}
+  spec:
+    hosts: "$CI_PROJECT_NAME-$ENVIRONMENT.$URLVARIBLESISIO"
+    http: 
+      route:
+        destination:
+            host: "" # override service, default will be  $fullName
+            port:
+              number: "" # override port default will be $svcPort
+
+# -- Canary template
+canary:
+  enabled: false
+  revertOnDeletion: false # https://docs.flagger.app/usage/how-it-works#canary-finalizers
+  disableDefaultMetrics: false # Disable custom metrics https://docs.flagger.app/usage/metrics#builtin-metrics, and Istio metrics: https://github.com/fluxcd/flagger/blob/main/pkg/metrics/observers/istio.go
+  service:
+    portDiscovery: true  
+  # Istio traffic policy tls can be DISABLE or ISTIO_MUTUAL
+  istioTLS: DISABLE
+  istioIngress:
+    enabled: false # Включать если нужно создать vitrualservice с помощью flagger
+    # Istio ingress gateway name
+    gateway: istio-ingress/cross-network-gateway
+    # external host istio URL
+    host: "$CI_PROJECT_NAME-$ENVIRONMENT.$URLVARIBLESISIO"
+  analysis:
+    # schedule interval (default 60s)
+    interval: 10s
+    # max number of failed metric checks before rollback
+    threshold: 10
+    # max traffic percentage routed to canary
+    # percentage (0-100)
+    maxWeight: 70
+    # canary increment step
+    # percentage (0-100)
+    stepWeight: 5
+  thresholds:
+    # minimum req success rate (non 5xx responses)
+    # percentage (0-100)
+    successRate: 99
+    # maximum req duration P99
+    # milliseconds
+    latency: 500
+  # https://docs.flagger.app/usage/metrics#custom-metrics
+  customAnalysis: 
+    enabled: false
+    templates: # Можно передать массив templates
+      - name: metric-name
+        templateRef:
+          name: metric-template-name
+          namespace: namespace # Default value "canary"
+        thresholdRange: # accepted values
+          min: 10
+          max: 1000
+        interval: 1m  # metric query time window
+  loadtest:
+    enabled: true
+    # load tester address
+    url: http://loadtester.flagger.svc/
+  helmtest:
+    enabled: false
+    # helm tester address
+    url: http://flagger-helmtester.kube-system/
+
+# -- Configure HPA
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 3
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+### healthchecks and monitoring
+#readinessProbe:
+#  tcpSocket:
+#    port: 8080
+#  initialDelaySeconds: 5
+#  periodSeconds: 10
+#livenessProbe:
+#  tcpSocket:
+#    port: 8080
+#  initialDelaySeconds: 15
+#  periodSeconds: 20
+
+# livenessProbe:
+#   httpGet:
+#     path: "/healthz"
+#     port: http
+#   initialDelaySeconds: 5
+#   periodSeconds: 10
+# readinessProbe:
+#   httpGet:
+#     path: "/readyz"
+#     port: http
+#   initialDelaySeconds: 5
+#   periodSeconds: 10
+
+serviceMonitor:
+ enabled: false
+ interval: 10s
+ selector:
+   monitoring: enabled
+ path: /metrics
+ port: http
+
+
+tlsSecrets: {}
+#  myproject-tls:
+#    description: myproject-20210101-corp
+#    crt: |
+#      -----BEGIN CERTIFICATE-----
+#      ...
+#    key: |
+#      -----BEGIN PRIVATE KEY-----
+#      ...
+
+sidecars: {}
+#  monitor:
+#    securityContext: {}
+#    image:
+#      repository: busybox
+#      tag: latest
+#      digest: ""
+#      # pullPolicy: IfNotPresent
+#    resources: {}
+#    ports: []
+#    #  - name: sidecar-http
+#    #    containerPort: 2080
+#    #    protocol: TCP
+#    healthchecks:
+#      enabled: false
+#      # "tcp" or "http"
+#      type: http
+#      #port: 2080
+#      path: /health
+#    confFileMounts: []
+#      #- mountPath: /etc/nginx/nginx.conf
+#      #  #secretName: some-secret
+#      #  subPath: nginx.conf
+#      #  #items:
+#      #  #  - nginx.conf
+#    ## Pass environment variables to container
+#    env: []
+#    #  - name: ENV1
+#    #    value: value1
+#    ## Pass extra environment variables to container
+#    extraEnv: []
+#    #  - name: ENV1
+#    #    value: value1
+
+## Pass environment variables to container
+# env:
+#   - name: LOG_LEVEL
+#     value: "warning"
+#  - name: SECRET_USER
+#    valueFrom:
+#      secretKeyRef:
+#        name: foosecret
+#        key: USER
+#  - name: SECRET_USER2
+#    valueFrom:
+#      secretKeyRef:
+#        name: foosecret
+#        key: user2
+# - name: SPRING_PROFILES_ACTIVE
+#   value: "test,simple-log"
+# - name: KEY_STORE_KEY_PASSWORD
+#   value: $KEY_STORE_KEY_PASSWORD
+# - name: KEY_STORE_STORE_PASSWORD
+#   value: $KEY_STORE_STORE_PASSWORD
+# - name: SECURITY_USER_PASSWORD
+#   value: $SECURITY_USER_PASSWORD
+
+### - extraEnv for global values
+extraEnv: []
+  # - name: LOG_LEVEL
+  #   value: "warning"
+
+envAsFile: no
+#   envAsFileFromPath: "../../files/"
+envFrom: []
+#  - configMapRef:
+#      name: env-configmap
+  # - secretRef:
+  #     name: $CI_PROJECT_NAME-$ENVIRONMENT-secret
+  
+
+## Add entries to /etc/hosts
+hostAliases: []
+#  - ip: 172.16.26.49
+#    hostnames:
+#      - s3.ru
+#      - av.s3.ru
+
+## Extra pod annotations, in gotemplate format
+extraPodAnnotationTemplates: {}
+#  ## Restart on config change
+#  k8s.example.com/app-local-config-checksum: >-
+#    {{- $content := "" -}}
+#    {{- range $.Values.configFiles -}}
+#    {{- $content = print $content (tpl ($.Files.Get .template) $) -}}
+#    {{- end -}}
+#    {{- $content | sha256sum -}}
+
+###annotations fot gitlab web-terminal
+annotate: false
+gitlabEnv: ""
+gitlabApp: ""
+
+renderExtraManifests: false
+
+# -- csi vault
+secretproviderclass:
+  enabled: false  
+  name: $CI_PROJECT_NAME-$ENVIRONMENT
+  provider: vault
+  secretObjects:
+    - secretName: $CI_PROJECT_NAME-$ENVIRONMENT-secret
+      type: Opaque
+      data:
+        - objectName: SESSION
+          key: SESSION
+        - objectName: HYDRA_ADMIN_URL
+          key: HYDRA_ADMIN_URL
+        - objectName: HYDRA_PUBLIC_URL
+          key: HYDRA_PUBLIC_URL
+        - objectName: COOKIES_DOMAIN
+          key: COOKIES_DOMAIN
+  parameters:
+    vaultAddress: "http://vault.vault.svc:8200"
+    roleName: "$CI_PROJECT_NAME-$ENVIRONMENT"
+    objects: |
+      - objectName: "SESSION"
+        secretPath: secret/data/$ENVIRONMENT/ory/$CI_PROJECT_NAME-$ENVIRONMENT
+        secretKey: SESSION
+      - objectName: "HYDRA_ADMIN_URL"
+        secretPath: secret/data/$ENVIRONMENT/ory/$CI_PROJECT_NAME-$ENVIRONMENT
+        secretKey: HYDRA_ADMIN_URL
+      - objectName: "HYDRA_PUBLIC_URL"
+        secretPath: secret/data/$ENVIRONMENT/ory/$CI_PROJECT_NAME-$ENVIRONMENT
+        secretKey: HYDRA_PUBLIC_URL
+      - objectName: "COOKIES_DOMAIN"
+        secretPath: secret/data/$ENVIRONMENT/ory/$CI_PROJECT_NAME-$ENVIRONMENT
+        secretKey: COOKIES_DOMAIN
+# -- vault secret operator values
+vault:
+  enabled: true
+  staticsecret:
+    path: proj/service
+    type: kv-v2
+    mount: secrets
+    refreshAfter: 30s
+  vaultrole: proj-service
+  auth:
+    method: kubernetes
+    mount: kubernetes

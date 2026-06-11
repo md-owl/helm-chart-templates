@@ -1,0 +1,261 @@
+{{- if .Values.deployment }}
+{{- $configChecksum := "" }}
+{{- if .Values.restartOnConfigChange }}
+{{- $checksumTemplates := list "secret-conffiles.yaml" "configmap-file-luna.yaml" "configmap-vars-env.yaml" -}}
+{{- $templateText := "" -}}
+{{- range $checksumTemplates -}}
+  {{- $templateText = print $templateText (include (print $.Template.BasePath "/" .) $) -}}
+{{- end -}}
+{{- $configChecksum = $templateText | sha256sum }}
+{{- end }}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "deploy.fullname" . }}
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+{{ if .Values.extraAnnotations }}
+  annotations:
+{{ include "deploy.annotations" . | indent 4 }}
+{{- end }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  {{- if .Values.strategy.type }}
+  strategy:
+  {{- toYaml .Values.strategy | nindent 4 }}
+  {{- end }}  
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "deploy.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "deploy.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        {{- if $configChecksum }}
+        # ConfigMap change will trigger a restart
+        "k8s.cluster.local/config-checksum": {{ $configChecksum }}
+        {{- end }}
+        {{- if .Values.extraPodAnnotationTemplates }}
+        {{- range $k, $v := .Values.extraPodAnnotationTemplates }}
+        {{ $k | quote }}: {{ tpl $v $ | quote }}
+        {{- end }}
+        {{- end }}
+    spec:
+    {{- if .Values.imagePullSecrets }}
+    {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+    {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- end }}
+      serviceAccountName: {{ template "deploy.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.hostAliases }}
+      hostAliases:
+        {{- toYaml .Values.hostAliases | nindent 8 }}
+      {{- end }}
+      {{- if .Values.initContainers  }}
+      {{- range .Values.initContainers }}
+      initContainers:
+      {{- if .enabled }}
+        - name: {{ .name }}
+          {{- if or .tag $.Values.image.tag }}
+          image: "{{ .repository | default $.Values.image.repository  }}:{{ .tag | default $.Values.image.tag }}"
+          {{- else }}
+          image: "{{ .repository | default $.Values.image.repository  }}@{{ .digest | default $.Values.image.digest }}"
+          {{- end }}
+          command: ['sh', '-c', "{{ .command }}"]
+         {{- if .envFrom }}
+          envFrom:
+            {{- toYaml .envFrom | nindent 12  }}
+         {{ end }}          
+          env: 
+            - name: POD_LABEL
+              value: {{ $.Release.Name }}
+            {{- if .env }}
+            {{ toYaml .env | nindent 12 }}
+            {{- end }}
+            {{- if .extraEnv }}
+            {{ toYaml .extraEnv | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            {{ include "mounts" $  | nindent 12 }}
+      {{- end }}      
+      {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ .Release.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.image.digest }}
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          {{- else }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if or .Values.envFrom }}
+          envFrom:
+          {{- if .Values.envFrom }}
+            {{- toYaml .Values.envFrom | nindent 12 -}}
+          {{- end }}
+          {{- end }}
+          ports:
+            - name: {{ .Values.service.portname }}
+              containerPort: {{ .Values.service.port }}
+              protocol: {{ .Values.service.protocol }}
+            {{- if .Values.service.extraPorts }}
+           {{- range .Values.service.extraPorts }}
+            - name: {{ .name }}
+              containerPort: {{ .containerPort }}
+              protocol: {{ .protocol }}
+            {{- end }}
+            {{- end }}
+            {{- if .Values.extraService.enabled }}
+            - name: {{ .Values.extraService.portname }}
+              containerPort: {{ .Values.extraService.port }}
+              protocol: {{ .Values.extraService.protocol }}
+            {{- if .Values.extraService.extraPorts }}
+           {{- range .Values.service.extraPorts }}
+            - name: {{ .name }}
+              containerPort: {{ .containerPort }}
+              protocol: {{ .protocol }}
+            {{- end }}            
+            {{- end }}
+            {{- end }}
+         {{- if .Values.startupProbe }}            
+          startupProbe:
+         {{- toYaml .Values.startupProbe | nindent 12 }}
+         {{- end }}            
+         {{- if .Values.readinessProbe }}
+          readinessProbe:
+         {{- toYaml .Values.readinessProbe | nindent 12 }}
+         {{- end }}
+         {{- if .Values.livenessProbe }}
+          livenessProbe:
+         {{- toYaml .Values.livenessProbe | nindent 12 }}
+         {{- end }}
+         {{- if .Values.lifecycle }}
+          lifecycle:
+           {{- toYaml .Values.lifecycle | nindent 12 }}
+         {{- end }}
+          env:
+            - name: POD_LABEL
+              value: {{ .Release.Name }}
+            {{- if .Values.env }}
+            {{- toYaml .Values.env | nindent 12 }}
+            {{- end }}
+            {{- if .Values.extraEnv }}
+            {{ toYaml .Values.extraEnv | nindent 12 }}
+            {{- end }}
+          {{- if .Values.command }}
+          command:
+            {{- range $commandIndex, $command := .Values.command }}
+            - {{ $command | quote }}
+            {{- end }}
+          {{- end }}
+          {{- if .Values.args }}
+          args:
+            {{- range $argIndex, $arg := .Values.args }}
+            - {{ $arg | quote }}
+            {{- end }}
+          {{- end }}
+          resources:              
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "mounts" . | nindent 12 }}
+            {{- if .Values.secretproviderclass.enabled }}
+            {{- include "csiVolumeMount" . | nindent 12 }}
+            {{- end }}
+## additional sidecars containers ##            
+        {{- if .Values.sidecars }}
+        {{- range $sidecarname, $sidecar := .Values.sidecars }}
+        - name: {{ $sidecar.name }}
+          {{- if $sidecar.securityContext }}
+          securityContext:
+            {{- toYaml $sidecar.securityContext | nindent 12 }}
+          {{- end }}
+          {{- if $sidecar.image.digest }}
+          image: "{{ $sidecar.image.repository }}@{{ $sidecar.image.digest }}"
+          {{- else }}
+          image: "{{ $sidecar.image.repository }}:{{ $sidecar.image.tag }}"
+          {{- end }}
+          imagePullPolicy: {{ default "IfNotPresent" $sidecar.image.pullPolicy }}
+          {{- if $sidecar.ports }}
+          ports:
+            {{- $sidecar.ports | nindent 12 }}
+          {{- end }}
+          {{- if $sidecar.healthchecks.enabled }}
+          {{- if (eq $sidecar.healthchecks.type "tcp") }}
+          readinessProbe:
+            tcpSocket:
+              port: {{ default (index $sidecar.services 0).port $sidecar.healthchecks.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: {{ default (index $sidecar.services 0).port $sidecar.healthchecks.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          {{- end }}
+          {{ if (eq $sidecar.healthchecks.type "http") }}
+          livenessProbe:
+            httpGet:
+              path: {{ $sidecar.healthchecks.path }}
+              port: {{ default (index $sidecar.services 0).port $sidecar.healthchecks.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: {{ $sidecar.healthchecks.path }}
+              port: {{ default (index $sidecar.services 0).port $sidecar.healthchecks.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          {{- end }}
+          {{- end }}
+         {{- if $sidecar.envFrom }}
+          envFrom:
+            {{- toYaml $sidecar.envFrom | nindent 12  }}
+         {{ end }}          
+          env:
+            - name: POD_LABEL
+              value: {{ $.Release.Name }}
+            {{- if $sidecar.env }}
+            {{ toYaml $sidecar.env | nindent 12 }}
+            {{- end }}
+            {{- if $sidecar.extraEnv }}
+            {{ toYaml $sidecar.extraEnv | nindent 12 }}
+            {{- end }}
+          {{- if $sidecar.resources }}
+          resources:
+            {{- toYaml $sidecar.resources | nindent 12 }}
+          {{- end }}
+          {{- if $sidecar.volumeMounts }}
+          volumeMounts:
+            {{- toYaml $sidecar.volumeMounts | nindent 12 -}}
+          {{- end }}
+        {{- end }}
+        {{- end }}
+## end sidecars ##        
+      volumes:
+      {{- include "volumes" . | nindent 8 -}}
+      {{- include "csivolume" . | nindent 8 -}}
+
+    {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+{{- end }}

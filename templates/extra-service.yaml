@@ -1,0 +1,33 @@
+{{- if .Values.extraService.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "deploy.fullname" . }}-{{ .Values.extraService.portname }}
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+  {{- with .Values.extraService.extraLabels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end -}}
+  {{ if .Values.extraService.annotations }}
+  annotations:
+  {{- with .Values.extraService.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+spec:
+  type: {{ .Values.extraService.type }}
+  ports:
+    - port: {{ .Values.extraService.port }}
+      targetPort: {{ .Values.extraService.portname }}
+      protocol: {{ .Values.extraService.protocol }}
+      name: {{ .Values.extraService.portname }}
+   {{- range .Values.extraService.extraPorts }}
+    - name: {{ .name }}
+      port: {{ .containerPort }}
+      targetPort: {{ .name }}
+      protocol: {{ .protocol }}
+   {{ end }}
+  selector:
+    app.kubernetes.io/name: {{ include "deploy.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

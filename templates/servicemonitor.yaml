@@ -1,0 +1,25 @@
+{{ if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "deploy.fullname" . }}
+  labels:
+{{ include "deploy.labels" . | indent 4 }}    
+{{- if .Values.serviceMonitor.selector }}
+{{ toYaml .Values.serviceMonitor.selector | indent 4 }}
+{{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "deploy.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  endpoints:
+  - interval: {{ .Values.serviceMonitor.interval }}
+  {{- if .Values.serviceMonitor.scrapeTimeout }}
+    scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+  {{- end }}
+    port: {{ .Values.serviceMonitor.port }}
+    path: {{ .Values.serviceMonitor.path }}
+  namespaceSelector:
+    any: true
+{{- end }}

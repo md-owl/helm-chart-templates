@@ -1,0 +1,72 @@
+{{ if .Values.ingressesGrpc }}
+
+{{- $fullName := include "deploy.fullname" . -}}
+{{- $labels := include "deploy.labels" . }}
+{{- $svcPort := .Values.service.port -}}
+
+{{- range .Values.ingressesGrpc }}
+{{- if .enabled }}
+{{- if and .className (not (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion)) }}
+{{ if not (hasKey .annotations "kubernetes.io/ingress.class") }}
+{{ $_ := set .annotations "kubernetes.io/ingress.class" .className }}
+{{ end }}
+{{ end }}
+{{ if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
+apiVersion: networking.k8s.io/v1
+{{- else if semverCompare ">=1.14-0" $.Capabilities.KubeVersion.GitVersion -}}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+  name: {{ .name }}
+  labels:
+  {{- with $labels -}}
+  {{ . | nindent 4 }}
+  {{- end }}
+  {{- if .annotations }}
+  annotations:
+  {{- with .annotations -}}
+  {{ toYaml . | nindent 4 }}
+  {{- end }}
+  {{- end }}
+spec:
+    {{- if and .className (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
+  ingressClassName: {{ .className }}
+    {{- end }}    
+    {{- if .tls }}
+  tls:
+    {{- range .tls }}
+    - secretName: {{ .secretName }}
+      hosts:
+      {{- range .hosts }}
+          - {{ . | quote }}
+      {{- end }}
+    {{- end }}
+    {{- end }}
+  rules:
+    {{- range .hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+        {{- range .paths }}
+        - path: {{ .path }}
+            {{- if and .pathType (semverCompare ">=1.18-0" $.Capabilities.KubeVersion.GitVersion) }}
+          pathType: {{ .pathType }}
+            {{- end }}
+          backend:
+            {{- if semverCompare ">=1.19-0" $.Capabilities.KubeVersion.GitVersion }}
+            service:
+              name: {{ .serviceName | default $fullName }}
+              port:
+                number: {{ .servicePort | default (int $svcPort) }}
+            {{- else }}
+            serviceName: {{ .serviceName | default $fullName }}
+            servicePort: {{ .servicePort | default (int $svcPort) }}
+            {{- end }}
+        {{- end }}
+    {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

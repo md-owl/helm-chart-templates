@@ -1,0 +1,12 @@
+{{- if .Values.serviceAccount.createRbac -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ template "deploy.serviceAccountName" . }}-role
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+rules:
+{{ if .Values.serviceAccount.rules  }}
+{{- .Values.serviceAccount.rules | toYaml }}
+{{ end }}
+{{ end }}

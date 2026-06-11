@@ -1,0 +1,10 @@
+{{- if .Values.envAsFile }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "deploy.fullname" . }}-env
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+data:
+{{ (.Files.Glob (printf "%s**" .Release.Name)).AsConfig | indent 4 }}
+{{- end }}

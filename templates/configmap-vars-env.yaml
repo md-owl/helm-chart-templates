@@ -1,0 +1,14 @@
+{{- if .Values.envAsEnv  }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "deploy.fullname" . }}-varsenv
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+data:
+{{ range $path, $_ :=  .Files.Glob (printf "**/.env.%s" .Release.Name) -}}
+{{ $.Files.Get $path | default "files/.env" | printf "%s" | replace "=" ": " | indent 2 }}
+{{- else }}
+{{- $.Files.Get "files/.env" | printf "%s" | replace "=" ": " | indent 2 }}
+{{- end }}
+{{- end }}

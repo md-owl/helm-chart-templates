@@ -1,0 +1,18 @@
+{{- if .Values.vault.enabled }}
+{{- if .Values.vault.staticsecret }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "deploy.fullname" . }}-vault-rbac
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:auth-delegator
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "deploy.fullname" . }}-sa
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}

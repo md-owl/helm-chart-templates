@@ -1,0 +1,10 @@
+{{- if .Values.vault.enabled }}
+{{- if .Values.vault.staticsecret }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "deploy.fullname" . }}-sa
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+{{- end }}
+{{- end }}

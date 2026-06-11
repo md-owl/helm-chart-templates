@@ -1,0 +1,12 @@
+{{- if .Values.vault.enabled }}
+{{- if .Values.vault.staticsecret }}
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: {{ include "deploy.fullname" . }}-auth
+  labels:
+{{ include "deploy.labels" . | indent 4 }}
+spec:
+{{- include "VaultAuth" . }}
+{{- end }}
+{{- end }}
